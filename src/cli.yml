@@ -1,0 +1,50 @@
+name: disqus_proxy
+version: "0.1"
+author: Li Jinpei <leekingp1994@163.com>
+about: Proxy disqus through your vps.
+args:
+    - config:
+        short: c
+        long: config
+        value_name: FILE
+        help: Sets a custom config file
+        required: false
+    - no_default_config:
+        short: n
+        long: no_default_config
+        help: don't load default config file disqus_proxy.toml
+        required: false
+    - addr_port:
+        short: a
+        long: addr_port
+        value_name: addrress:port
+        help: Set the address and port to listen on
+        required: false
+    - api_key:
+        short: k
+        long: api_key
+        value_name: api public key
+        help: Set the public api key
+        required: false
+    - api_secret:
+        short: s
+        long: api_secret
+        value_name: api secret key
+        help: Set the private api key
+        required: false
+    - use_tls:
+        long: use_tls
+        value_name: true/false to use https?
+        help: use https protocol
+    - tls_cert:
+        long: tls_cert
+        value_name: tls cert file path
+        help: Set the tls cert file
+    - tls_key:
+        long: tls_key
+        value_name: tls key file path
+        help: Set the tls key file
+    - show:
+        long: show
+        help: Show config information and exit
+        required: false
