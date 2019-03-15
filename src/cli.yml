@@ -20,6 +20,11 @@ args:
         value_name: addrress:port
         help: Set the address and port to listen on
         required: false
+    - host_domain:
+        short: h
+        long: host_domain
+        value_name: host domain name
+        help: the domain name this service is running for
     - api_key:
         short: k
         long: api_key
@@ -31,6 +36,11 @@ args:
         long: api_secret
         value_name: api secret key
         help: Set the private api key
+        required: false
+    - redirect_uri:
+        short: r
+        long: redirect_uri
+        value_name: your redirection uri registered in disqus
         required: false
     - use_tls:
         long: use_tls

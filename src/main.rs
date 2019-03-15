@@ -14,9 +14,11 @@ struct Config {
     listen_port: Option<u16>,
     api_key: Option<String>,
     api_secret: Option<String>,
+    redirect_uri: Option<String>,
     use_tls: Option<bool>,
     tls_cert: Option<PathBuf>,
-    tls_key: Option<PathBuf>
+    tls_key: Option<PathBuf>,
+    host_domain: Option<String>
 }
 
 enum ClCommand {
@@ -71,6 +73,10 @@ fn handle_command_line_and_config() -> Result<(ClCommand, Option<PathBuf>, Confi
         config.listen_port = Some(port.parse()?);
     }
 
+    if let Some(v) = matches.value_of("host_domain") {
+        config.host_domain = Some(v.to_string());
+    }
+
     if let Some(v) = matches.value_of("use_tls") {
         config.use_tls = Some(v.parse()?);
     }
@@ -89,6 +95,9 @@ fn handle_command_line_and_config() -> Result<(ClCommand, Option<PathBuf>, Confi
     }
     if let Some(v) = matches.value_of("api_secret") {
         config.api_secret = Some(v.to_string());
+    }
+    if let Some(v) = matches.value_of("redirect_uri") {
+        config.redirect_uri = Some(v.to_string());
     }
 
     let command = 
