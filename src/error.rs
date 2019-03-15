@@ -17,6 +17,10 @@ quick_error! {
         ParseUseTlsErr(err: std::str::ParseBoolError) {
             from()
         }
+        NoApiKey {}
+        NoApiSecret {}
+        NoRedirectUri {}
+        NoCommonApiKey {}
     }
 }
 
@@ -33,5 +37,6 @@ quick_error! {
         TlsKeyFileOpenFail(err: std::io::Error) {}
         BindAddrFail(e: std::io::Error) {}
         BindTlsAddrFail(e: std::io::Error) {}
+        ShowConfigWriteFmtFail(e: std::io::Error) {}
     }
 }

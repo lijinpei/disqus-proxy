@@ -1,8 +1,8 @@
-use crate::{error, Config};
+use crate::{error, ConfigFile};
 use rustls::internal::pemfile::{certs, rsa_private_keys};
 use rustls::{NoClientAuth, ServerConfig};
 
-pub(crate) fn load_tls(conf: &Config) -> Result<ServerConfig, error::MainError> {
+pub(crate) fn load_tls(conf: &ConfigFile) -> Result<ServerConfig, error::MainError> {
 use std::io::BufReader;
 use std::fs::File;
 

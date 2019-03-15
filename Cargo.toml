@@ -12,3 +12,6 @@ actix-web = { version = "0.7", features = ["rust-tls"] }
 quick-error = "1.2"
 rustls = "0.14"
 futures = "0.1"
+env_logger = "0.6"
+log = "0.4"
+bio = "0.25"

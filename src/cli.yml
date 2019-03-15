@@ -20,11 +20,10 @@ args:
         value_name: addrress:port
         help: Set the address and port to listen on
         required: false
-    - host_domain:
-        short: h
-        long: host_domain
-        value_name: host domain name
-        help: the domain name this service is running for
+    - path_prefix:
+        long: path_prefix 
+        value_name: prefix prepended to api urls
+        help: prefix prepended to api urls
     - api_key:
         short: k
         long: api_key
