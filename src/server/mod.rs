@@ -52,10 +52,14 @@ fn login_new_1(login_info: LoginInfo, token: String, session_id: String, prev_ur
         log::info!("login_new1_send_request {:?}", res);
         log::info!("login_new1_send_request body {:?}", res.body());
         res.send().map_err(|e| { log::info!("login_new_1_post_form_error {:?}", e); e }).from_err().and_then(|response| {
+            log::info!("login_new_1_disqus_server_response_header {:?}", response.headers());
+                return future::err(std::convert::Into::<actix_web::error::Error>::into(actix_web::middleware::csrf::CsrfError::CsrDenied));
+            /*
             response.body().map_err(|e| { log::info!("login_new_1_disqus_server_response_body_error {:?}", e); e }).from_err().and_then(|msg| {
                 log::info!("login_new_1_disqus_server_response_body {:?}", std::str::from_utf8(&msg));
                 return future::err(std::convert::Into::<actix_web::error::Error>::into(actix_web::middleware::csrf::CsrfError::CsrDenied));
-            })})})
+            })
+            */})})
 }
 
 fn login_new(req: HttpRequest<ApiConfig>) -> FutureResponse<HttpResponseBuilder> {
