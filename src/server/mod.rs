@@ -25,26 +25,28 @@ struct LoginInfo {
 }
 
 #[derive(Serialize)]
-struct LoginInfoForm {
-    username: String,
-    password: String,
-    csrfmiddlewaretoken: String,
+struct LoginInfoForm <'a>{
+    username: &'a str,
+    password: &'a str,
+    csrfmiddlewaretoken: &'a str,
 }
 
-fn login_new_1(login_info: LoginInfo, token: String, cookies: Vec<http::Cookie>, prev_uri: String) -> impl future::Future<Item=HttpResponseBuilder, Error=actix_web::error::Error> {
+fn login_new_1(login_info: LoginInfo, token: String, session_id: String, prev_uri: String) -> impl future::Future<Item=HttpResponseBuilder, Error=actix_web::error::Error> {
     use future::{Future, IntoFuture};
     let uri = "https://disqus.com/api/oauth/2.0/grant/";
     let form = LoginInfoForm {
-        username: login_info.username,
-        password: login_info.password,
-        csrfmiddlewaretoken: token,
+        username: &login_info.username,
+        password: &login_info.password,
+        csrfmiddlewaretoken: &token,
     };
-    let mut req = 
-    client::post(&uri);
+    let cookie = format!("csrftoken={}; sessionid={}", token, session_id);
+    client::post(&uri).no_default_headers().header("User-Agent", "curl/7.64.0").header("Cookie", cookie)
+    /*
     for cookie in cookies {
         req.cookie(cookie);
     }
-    req.set_header(actix_web::http::header::REFERER, prev_uri)
+    */
+    .header(actix_web::http::header::REFERER, prev_uri)
     .set_header(actix_web::http::header::HOST, "disqus.com")
     .form(form).into_future().from_err().and_then(|res| {
         log::info!("login_new1_send_request {:?}", res);
@@ -72,33 +74,31 @@ fn login_new(req: HttpRequest<ApiConfig>) -> FutureResponse<HttpResponseBuilder>
                             return future::Either::A(future::err(actix_web::error::ErrorInternalServerError(err)));
                         },
                         Ok(cookies) => {
-                            return future::Either::B(
-                            response.body().map_err(|e| { log::info!("login_new_disqus_server_response_body_error {:?}", e); actix_web::error::ErrorInternalServerError(e) }).and_then(|msg| {
-                                log::info!("login_new_disqus_server_response_body {:?}", std::str::from_utf8(&msg));
-                                let target = "name='csrfmiddlewaretoken' value='";
-                                let target_len = target.len();
-                                let key_len = 32;
-                                let kmp = bio::pattern_matching::kmp::KMP::new(target.as_bytes());
-                                let mut matches = kmp.find_all(msg.clone());
-                                if let Some(pos) = matches.next() {
-                                        log::info!("longin_new_find_match_at_pos {}", pos);
-                                        log::info!("longin_new_find_match_pos_context {:?}", std::str::from_utf8(&msg[pos..pos+30]));
-                                        log::info!("longin_new_find_match_key {:?}", std::str::from_utf8(&msg[pos+target_len..pos+target_len+key_len]));
-                                        let start_pos = pos + target_len;
-                                        let end_pos = start_pos + key_len;
-                                        let msg_len = msg.len();
-                                        if end_pos < msg_len {
-                                            let token = unsafe { std::str::from_utf8_unchecked(&msg[pos+target_len..pos+target_len+key_len]).to_owned() };
-                                            log::info!("longin_new_find_match_key {:?}", token);
-                                            return future::Either::A(login_new_1(login_info, token, cookies, uri));
-                                        } else {
-                                            log::info!("longin_new_find_match_len_not_enough {} {}", end_pos, msg_len);
-                                        }
-                                } else {
-                                    log::info!("longin_new_find_no_match");
+                            let mut token = None;
+                            let mut session_id = None;
+                            for cookie in cookies {
+                                match cookie.name() {
+                                    "csrftoken" => {
+                                        token = Some(cookie.value().to_owned());
+                                    },
+                                    "sessionid" => {
+                                        session_id = Some(cookie.value().to_owned());
+                                    },
+                                    name @ _ => {
+                                        log::info!("login_new_disqus_response_unknown_cookie name {} value {}", name, cookie.value());
+                                    }
                                 }
-                                return future::Either::B(future::err(actix_web::error::ErrorInternalServerError(actix_web::middleware::csrf::CsrfError::CsrDenied)));
-                            }))
+                            }
+                            match (token, session_id) {
+                                (Some(token), Some(session_id)) => {
+                                    let res = login_new_1(login_info, token, session_id, uri);
+                                    return future::Either::B(future::Either::A(res));
+                                },
+                                _ => {
+                                    let res = future::err(actix_web::error::ErrorInternalServerError(actix_web::middleware::csrf::CsrfError::CsrDenied));
+                                    return future::Either::B(future::Either::B(res));
+                                },
+                            }
                         },
                     }
                 })
