@@ -31,7 +31,7 @@ struct LoginInfoForm <'a>{
     csrfmiddlewaretoken: &'a str,
 }
 
-fn login_new_1(login_info: LoginInfo, token: String, session_id: String, prev_uri: String) -> impl future::Future<Item=HttpResponseBuilder, Error=actix_web::error::Error> {
+fn login_new_1(login_info: LoginInfo, token: String, session_id: String, prev_uri: String, conf: ApiConfig) -> impl future::Future<Item=HttpResponse, Error=actix_web::error::Error> {
     use future::{Future, IntoFuture};
     let uri = "https://disqus.com/api/oauth/2.0/grant/";
     let form = LoginInfoForm {
@@ -41,27 +41,42 @@ fn login_new_1(login_info: LoginInfo, token: String, session_id: String, prev_ur
     };
     let cookie = format!("csrftoken={}; sessionid={}", token, session_id);
     client::post(&uri).no_default_headers().header("User-Agent", "curl/7.64.0").header("Cookie", cookie)
-    //.header(actix_web::http::header::REFERER, prev_uri)
-    //.set_header(actix_web::http::header::HOST, "disqus.com")
-    .form(form).into_future().from_err().and_then(|res| {
+    .header(actix_web::http::header::REFERER, prev_uri)
+    .set_header(actix_web::http::header::HOST, "disqus.com")
+    .form(form).into_future().from_err().and_then(move |res| {
         log::info!("login_new1_send_request {:?}", res);
         log::info!("login_new1_send_request body {:?}", res.body());
-        res.send().map_err(|e| { log::info!("login_new_1_post_form_error {:?}", e); e }).from_err().and_then(|response| {
+        res.send().map_err(|e| { log::info!("login_new_1_post_form_error {:?}", e); e }).from_err().and_then(move |response| {
             log::info!("login_new_1_disqus_server_response_header {:?}", response.headers());
-                return future::err(std::convert::Into::<actix_web::error::Error>::into(actix_web::middleware::csrf::CsrfError::CsrDenied));
-            })})
+            if response.status() == http::StatusCode::FOUND {
+                if let Some(redirect_uri) = response.headers().get("location") {
+                    let redirect_uri = redirect_uri.as_bytes();
+                    let len = conf.redirect_uri.len();
+                    let len1 = redirect_uri.len();
+                    let suffix = "?code=";
+                    let suffix_len = suffix.len();
+                    // FIXME: better representation of uri
+                    if redirect_uri.len() > len + suffix_len && &redirect_uri[0..len] == conf.redirect_uri.as_bytes() && &redirect_uri[len..len+suffix_len] == suffix.as_bytes() {
+                        let access_token = &redirect_uri[len+suffix_len..];
+                        return future::ok(actix_web::HttpResponse::Ok().body(access_token.to_owned()));
+                    }
+                }
+            }
+            return future::err(std::convert::Into::<actix_web::error::Error>::into(actix_web::middleware::csrf::CsrfError::CsrDenied));
+        })
+    })
 }
 
-fn login_new(req: HttpRequest<ApiConfig>) -> FutureResponse<HttpResponseBuilder> {
+fn login_new(req: HttpRequest<ApiConfig>) -> FutureResponse<HttpResponse> {
     use future::{Future, IntoFuture};
     Box::new(
         req.urlencoded::<LoginInfo>()
         .map_err(|e| { log::info!("login_new_urlencoded_error {:?}", e); actix_web::error::ErrorInternalServerError(e) })
         .and_then(move |login_info| {
-            let conf = req.state();
+            let conf = req.state().clone();
             let uri = format!("https://disqus.com/api/oauth/2.0/authorize/?client_id={}&scope=read,write&response_type=code&redirect_uri={}", conf.api_key, conf.redirect_uri);
-            client::get(&uri).finish().into_future().and_then(|res| {
-                res.send().map_err(|e| { log::info!("login_new_urlencoded_send_error {:?}", e); actix_web::error::ErrorInternalServerError(e) }).and_then(|response| {
+            client::get(&uri).finish().into_future().and_then(move |res| {
+                res.send().map_err(|e| { log::info!("login_new_urlencoded_send_error {:?}", e); actix_web::error::ErrorInternalServerError(e) }).and_then(move |response| {
                     log::info!("login_new_disqus_server_response {:?}", response);
                     match response.cookies() {
                         Err(err) => {
@@ -85,7 +100,7 @@ fn login_new(req: HttpRequest<ApiConfig>) -> FutureResponse<HttpResponseBuilder>
                             }
                             match (token, session_id) {
                                 (Some(token), Some(session_id)) => {
-                                    let res = login_new_1(login_info, token, session_id, uri);
+                                    let res = login_new_1(login_info, token, session_id, uri, conf.clone());
                                     return future::Either::B(future::Either::A(res));
                                 },
                                 _ => {
@@ -101,11 +116,11 @@ fn login_new(req: HttpRequest<ApiConfig>) -> FutureResponse<HttpResponseBuilder>
     )
 }
 
-fn login(req: HttpRequest<ApiConfig>) -> FutureResponse<HttpResponseBuilder> {
+fn login(req: HttpRequest<ApiConfig>) -> FutureResponse<HttpResponse> {
     match req.identity() {
         Some(name) => {
             log::info!("login_name {}", name);
-            return Box::new(future::FutureResult::from(Result::Ok(HttpResponse::Ok())));
+            return Box::new(future::ok(HttpResponse::Ok().finish()));
         },
         None => {
             log::info!("login_none");
@@ -114,16 +129,16 @@ fn login(req: HttpRequest<ApiConfig>) -> FutureResponse<HttpResponseBuilder> {
     }
 }
 
-fn logout(req: HttpRequest<ApiConfig>) -> HttpResponseBuilder {
+fn logout(req: HttpRequest<ApiConfig>) -> HttpResponse {
     match req.identity() {
         Some(name) => {
             log::info!("logout_name {}", name);
             req.forget();
-            return HttpResponse::Ok();
+            return HttpResponse::Ok().finish();
         },
         None => {
             log::info!("logout_none");
-            return HttpResponse::NotFound();
+            return HttpResponse::NotFound().finish();
         }
     }
 }
@@ -143,7 +158,7 @@ fn build_app(conf: &ConfigFile, api_conf: &ApiConfig)-> App<ApiConfig> {
     .route("/logout", http::Method::POST, logout)
 }
 
-pub(crate) fn run_server(_conf_path: Option<PathBuf>, conf_file: ConfigFile, api_conf: ApiConfig) -> Result<(), error::MainError>{
+pub(crate) fn run_server(_conf_path: Option<PathBuf>, conf_file: ConfigFile, mut api_conf: ApiConfig) -> Result<(), error::MainError>{
     let addr = get_listen_address(&conf_file)?;
     let conf_file = Arc::new(conf_file);
     let api_conf = Arc::new(api_conf);
