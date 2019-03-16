@@ -41,11 +41,6 @@ fn login_new_1(login_info: LoginInfo, token: String, session_id: String, prev_ur
     };
     let cookie = format!("csrftoken={}; sessionid={}", token, session_id);
     client::post(&uri).no_default_headers().header("User-Agent", "curl/7.64.0").header("Cookie", cookie)
-    /*
-    for cookie in cookies {
-        req.cookie(cookie);
-    }
-    */
     .header(actix_web::http::header::REFERER, prev_uri)
     .set_header(actix_web::http::header::HOST, "disqus.com")
     .form(form).into_future().from_err().and_then(|res| {
@@ -54,12 +49,7 @@ fn login_new_1(login_info: LoginInfo, token: String, session_id: String, prev_ur
         res.send().map_err(|e| { log::info!("login_new_1_post_form_error {:?}", e); e }).from_err().and_then(|response| {
             log::info!("login_new_1_disqus_server_response_header {:?}", response.headers());
                 return future::err(std::convert::Into::<actix_web::error::Error>::into(actix_web::middleware::csrf::CsrfError::CsrDenied));
-            /*
-            response.body().map_err(|e| { log::info!("login_new_1_disqus_server_response_body_error {:?}", e); e }).from_err().and_then(|msg| {
-                log::info!("login_new_1_disqus_server_response_body {:?}", std::str::from_utf8(&msg));
-                return future::err(std::convert::Into::<actix_web::error::Error>::into(actix_web::middleware::csrf::CsrfError::CsrDenied));
-            })
-            */})})
+            })})
 }
 
 fn login_new(req: HttpRequest<ApiConfig>) -> FutureResponse<HttpResponseBuilder> {
