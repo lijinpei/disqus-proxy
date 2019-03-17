@@ -48,7 +48,7 @@ fn handle_config() -> Result<(ClCommand, Option<PathBuf>, ConfigFile), error::Cl
     fn load_config_from_path(path: &Path) -> Result<ConfigFile, ClConfError> {
         let mut res = File::open(path).map_err(|e| {error::ClConfError::ConfigFileOpenFail(e)})?;
         let mut contents = String::new();
-        let res = res.read_to_string(&mut contents).map_err(|e| { error::ClConfError::ConfigFileReadFail(e) })?;
+        res.read_to_string(&mut contents).map_err(|e| { error::ClConfError::ConfigFileReadFail(e) })?;
         let conf_file = toml::from_str(&contents)?;
         Ok(conf_file)
     }

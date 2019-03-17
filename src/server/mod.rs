@@ -2,16 +2,19 @@ mod tls;
 
 use crate::{ConfigFile, error};
 
-use tokio_postgres as pg;
-use actix_web::{App, server, client, HttpRequest, http, FutureResponse, HttpResponse, dev::HttpResponseBuilder, HttpMessage};
-use actix_web::middleware::{identity::{IdentityService, CookieIdentityPolicy, RequestIdentity}, session::RequestSession};
+//use tokio_postgres as pg;
+use actix_web::{App, client as http_client, http, HttpRequest, HttpResponse, FutureResponse};
 use std::path::PathBuf;
 use std::result::Result;
 use std::net::SocketAddr;
-use std::sync::Arc;
 use serde::{Deserialize, Serialize};
 use futures::future;
 use std::boxed::Box;
+
+// trait usage
+use actix_web::HttpMessage;
+use future::{Future, IntoFuture};
+use actix_web::middleware::identity::RequestIdentity;
 
 #[derive(Clone)]
 struct ApiConfig {
@@ -26,7 +29,7 @@ struct ApiConfig {
 impl ApiConfig {
     pub fn from_conf_file(conf_file: &ConfigFile) -> Result<ApiConfig, error::ClConfError> {
         use error::ClConfError::*;
-        // make sure evaluation order
+        // ensure evaluation order
         let api_key = conf_file.api_key.clone().ok_or(NoApiKey)?;
         let api_secret = conf_file.api_secret.clone().ok_or(NoApiSecret)?;
         let redirect_uri = conf_file.redirect_uri.clone().ok_or(NoRedirectUri)?;
@@ -68,11 +71,6 @@ fn get_listen_address(conf: &ConfigFile) -> Result<SocketAddr, error::ClConfErro
     Ok(SocketAddr::V4(SocketAddrV4::new(addr, port))
 }
 
-/*
-fn parse_addr_port(addr_port: &str) -> Result<(&str, u16), error::ClConfError> {
-}
-*/
-
 #[derive(Deserialize)]
 struct LoginInfo {
     username: String,
@@ -92,29 +90,37 @@ struct GrantInfo<'a> {
     client_id: &'a str,
     client_secret: &'a str,
     redirect_uri: &'a str,
-    code: &'a [u8],
+    code: &'a str,
 }
 
 fn login_new_grant(code: &[u8], state: AppState) -> impl future::Future<Item=HttpResponse, Error=actix_web::error::Error> {
-    use future::{Future, IntoFuture};
+    log::info!("login_new_grant");
     let grant_info = GrantInfo {
         grant_type: "authorization_code",
         client_id: &state.api_conf.api_key,
         client_secret: &state.api_conf.api_secret,
         redirect_uri: &state.api_conf.redirect_uri,
-        code: code
+        code: unsafe { std::str::from_utf8_unchecked(code) }
     };
-    let grant_uri = "POST https://disqus.com/api/oauth/2.0/access_token/";
-    client::post(&grant_uri).form(grant_info).into_future().from_err().and_then(|res| {
-        res.send().map_err(|e| { log::info!("login_new_grant_send_post_error {:?}", e); e}).from_err().and_then(move |response| {
+    let grant_uri = "https://disqus.com/api/oauth/2.0/access_token/";
+    let mut req = http_client::post(&grant_uri);
+    req.header(actix_web::http::header::HOST, "disqus.com");
+    let req = req.form(grant_info);
+    log::info!("login_new_grant_send_request {:?}", req);
+    req.into_future().map_err(|e| {log::info!("login_new_grant_form_post_error {:?}", e); actix_web::error::ErrorInternalServerError(e)}).and_then(|res| {
+        res.send().map_err(|e| { log::info!("login_new_grant_send_post_error {:?}", e); actix_web::error::ErrorInternalServerError(e)}).and_then(move |response| {
             log::info!("login_new_grant_disqus_response {:?}", response);
+            response.body().and_then(|res| {
+            log::info!("login_new_grant_disqus_response body{:?}", res);
             future::ok(HttpResponse::Ok().finish())
+            }).map_err(|e| {actix_web::error::ErrorInternalServerError(e) })
         })
     })
 }
 
 // 'a is the life time of the request
 fn login_new_auth<'a>(login_info: LoginInfo, token: String, session_id: String, state: AppState) -> impl future::Future<Item=HttpResponse, Error=actix_web::error::Error> + 'a {
+    log::info!("inside login new auth");
     use future::{Future, IntoFuture};
     let form = LoginInfoForm {
         username: &login_info.username,
@@ -122,11 +128,11 @@ fn login_new_auth<'a>(login_info: LoginInfo, token: String, session_id: String, 
         csrfmiddlewaretoken: &token,
     };
     let cookie = format!("csrftoken={}; sessionid={}", token, session_id);
-    let auth_uri = "https//disqus,com/api/oauth/2.0/grant/";
-    client::post(&auth_uri).header("Cookie", cookie)
+    let auth_uri = "https://disqus.com/api/oauth/2.0/grant/";
+    http_client::post(&auth_uri).header("Cookie", cookie)
     .header(actix_web::http::header::REFERER, auth_uri)
     .header(actix_web::http::header::HOST, "disqus.com")
-    .form(form).into_future().from_err().and_then(|res| {
+    .form(form).into_future().map_err(|e| { log::info!("login_new_auth_form_post_error {:?}", e); e }).from_err().and_then(|res| {
         log::info!("login_new1_send_request {:?}", res);
         log::info!("login_new1_send_request body {:?}", res.body());
         res.send().map_err(|e| { log::info!("login_new_1_post_form_error {:?}", e); e }).from_err().and_then(move |response| {
@@ -135,12 +141,11 @@ fn login_new_auth<'a>(login_info: LoginInfo, token: String, session_id: String, 
                 if let Some(redirect_uri) = response.headers().get("location") {
                     let redirect_uri = redirect_uri.as_bytes();
                     let len = state.api_conf.redirect_uri.len();
-                    let len1 = redirect_uri.len();
                     let suffix = "?code=";
                     let suffix_len = suffix.len();
-                    // FIXME: better representation of uri
                     if redirect_uri.len() > len + suffix_len && &redirect_uri[0..len] == state.api_conf.redirect_uri.as_bytes() && &redirect_uri[len..len+suffix_len] == suffix.as_bytes() {
                         let code = &redirect_uri[len+suffix_len..];
+                        log::info!("login_new_auth_get_code {:?}", std::str::from_utf8(&code));
                         return future::Either::A(login_new_grant(code, state));
                     }
                 }
@@ -157,7 +162,7 @@ fn login_new(req: HttpRequest<AppState>) -> FutureResponse<HttpResponse> {
         .map_err(|e| { log::info!("login_new_urlencoded_error {:?}", e); actix_web::error::ErrorInternalServerError(e) })
         .and_then(move |login_info| {
             let state = req.state().clone();
-            client::get(&state.api_conf.auth_uri).finish().into_future().and_then(|res| {
+            http_client::get(&state.api_conf.auth_uri).finish().into_future().and_then(|res| {
                 res.send().map_err(|e| { log::info!("login_new_urlencoded_send_error {:?}", e); actix_web::error::ErrorInternalServerError(e) })
                 .and_then(move |response| {
                     log::info!("login_new_disqus_server_response {:?}", response);
@@ -230,8 +235,7 @@ fn logout(req: HttpRequest<AppState>) -> HttpResponse {
 fn build_app(path_prefix: &Option<String>, app_state: AppState)-> App<AppState> {
     App::with_state(app_state)
     .middleware(actix_web::middleware::Logger::default())
-    // TODO: make sure it is safe to use empty key
-    .middleware(IdentityService::new(CookieIdentityPolicy::new(&[0; 256]).name("disqus-auth").secure(true))).configure(move |app| {
+    .configure(move |app| {
         if let Some(ref v) = path_prefix {
             app.prefix(v.clone())
         } else {
@@ -247,7 +251,7 @@ pub(crate) fn run_server(_conf_path: Option<PathBuf>, conf_file: ConfigFile) -> 
     {
         let app_state = AppState::from_conf_file(&conf_file)?;
         let path_prefix = conf_file.path_prefix.clone();
-        server::new(move || {
+        actix_web::server::new(move || {
             build_app(&path_prefix, app_state.clone())
         })
     };
