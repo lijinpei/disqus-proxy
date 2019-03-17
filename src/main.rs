@@ -9,27 +9,26 @@ pub mod error;
 pub mod server;
 
 #[derive(Deserialize, Default, Debug, Clone)]
-struct ApiConfig {
-    api_key: String,
-    api_secret: String,
-    redirect_uri: String,
-    common_api_key: String,
-}
-
-#[derive(Deserialize, Default, Debug, Clone)]
 struct ConfigFile {
     api_key: Option<String>,
     api_secret: Option<String>,
     redirect_uri: Option<String>,
     common_api_key: Option<String>,
 
-    listen_address: Option<String>,
-    listen_port: Option<u16>,
+    addr_port: Option<String>,
     use_tls: Option<bool>,
     tls_cert: Option<PathBuf>,
     tls_key: Option<PathBuf>,
 
     path_prefix: Option<String>, // response only as the specified host
+    cookie_secret_key: Option<String>,
+
+    pg_user: Option<String>,
+    pg_password: Option<String>,
+    pg_dbname: Option<String>,
+    pg_host: Option<String>,
+    pg_port: Option<String>,
+    pg_options: Option<String>,
 }
 
 enum ClCommand {
@@ -37,17 +36,7 @@ enum ClCommand {
     ShowConfig,
 }
 
-fn get_api_conf(conf_file: &ConfigFile) -> Result<ApiConfig, error::ClConfError> {
-    use error::ClConfError::*;
-    Ok(ApiConfig {
-        api_key: conf_file.api_key.clone().ok_or(NoApiKey)?,
-        api_secret: conf_file.api_secret.clone().ok_or(NoApiSecret)?,
-        redirect_uri: conf_file.redirect_uri.clone().ok_or(NoRedirectUri)?,
-        common_api_key: conf_file.common_api_key.clone().ok_or(NoCommonApiKey)?,
-    })
-}
-
-fn handle_config() -> Result<(ClCommand, Option<PathBuf>, ConfigFile, ApiConfig), error::ClConfError> {
+fn handle_config() -> Result<(ClCommand, Option<PathBuf>, ConfigFile), error::ClConfError> {
     use error::ClConfError;
     use std::io::Read;
 
@@ -96,22 +85,11 @@ fn handle_config() -> Result<(ClCommand, Option<PathBuf>, ConfigFile, ApiConfig)
     }
 
     if let Some(v) = matches.value_of("addr_port") {
-        let pos = v.rfind(':');
-        if pos.is_none() {
-            return Err(error::ClConfError::InvalidAddress);
-        };
-        let pos = pos.unwrap();
-        let (addr, port) = v.split_at(pos + 1);
-        let len = addr.len();
-        if len == 0 {
-            return Err(error::ClConfError::InvalidAddress);
-        }
-        config.listen_address = Some(addr[..len-1].to_string());
-        config.listen_port = Some(port.parse()?);
+        config.addr_port = Some(v.to_string());
     }
 
-    if let Some(v) = matches.value_of("use_tls") {
-        config.use_tls = Some(v.parse()?);
+    if matches.is_present("use_tls") {
+        config.use_tls = Some(true);
     }
 
     if let Some(true) = config.use_tls {
@@ -127,7 +105,24 @@ fn handle_config() -> Result<(ClCommand, Option<PathBuf>, ConfigFile, ApiConfig)
         config.path_prefix = Some(v.to_string());
     }
 
-    let api_conf = get_api_conf(&config)?;
+    if let Some(v) = matches.value_of("pg_user") {
+        config.pg_user = Some(v.to_string());
+    }
+    if let Some(v) = matches.value_of("pg_password") {
+        config.pg_password = Some(v.to_string());
+    }
+    if let Some(v) = matches.value_of("pg_dbname") {
+        config.pg_dbname = Some(v.to_string());
+    }
+    if let Some(v) = matches.value_of("pg_host") {
+        config.pg_host = Some(v.to_string());
+    }
+    if let Some(v) = matches.value_of("pg_port") {
+        config.pg_port = Some(v.to_string());
+    }
+    if let Some(v) = matches.value_of("pg_options") {
+        config.pg_options = Some(v.to_string());
+    }
 
     let command = 
     if matches.is_present("show") {
@@ -136,10 +131,10 @@ fn handle_config() -> Result<(ClCommand, Option<PathBuf>, ConfigFile, ApiConfig)
         ClCommand::RunServer
     };
     
-    Ok((command, config_path, config, api_conf))
+    Ok((command, config_path, config))
 }
 
-fn show_config<OS: std::io::Write>(conf_file_path: Option<PathBuf>, conf_file: ConfigFile, api_conf: ApiConfig, os: &mut OS) -> Result<(), error::MainError> {
+fn show_config<OS: std::io::Write>(conf_file_path: Option<PathBuf>, conf_file: ConfigFile, os: &mut OS) -> Result<(), error::MainError> {
     macro_rules! my_println {
         ($($e:expr),*) => { os.write_fmt(format_args!($($e),*)).map_err(|e| { error::MainError::ShowConfigWriteFmtFail(e)})? }
     }
@@ -152,20 +147,18 @@ fn show_config<OS: std::io::Write>(conf_file_path: Option<PathBuf>, conf_file: C
         },
     };
     my_println!("{:?}", conf_file);
-    my_println!("{:?}", api_conf);
     Ok(())
 }
 
-fn lookup_command(cmd: ClCommand) -> impl FnOnce(Option<PathBuf>, ConfigFile, ApiConfig) -> Result<(), error::MainError> {
+fn lookup_command(cmd: ClCommand) -> impl FnOnce(Option<PathBuf>, ConfigFile) -> Result<(), error::MainError> {
     use ClCommand::*;
-    fn show_config_1(conf_file_path: Option<PathBuf>, conf_file: ConfigFile, api_conf: ApiConfig) -> Result<(), error::MainError> {
-        show_config(conf_file_path, conf_file, api_conf, &mut std::io::stderr())
+    fn show_config_1(conf_file_path: Option<PathBuf>, conf_file: ConfigFile) -> Result<(), error::MainError> {
+        show_config(conf_file_path, conf_file, &mut std::io::stderr())
     }
-    fn run_server_1(conf_file_path: Option<PathBuf>, conf_file: ConfigFile, api_conf: ApiConfig) -> Result<(), error::MainError> {
+    fn run_server_1(conf_file_path: Option<PathBuf>, conf_file: ConfigFile) -> Result<(), error::MainError> {
         log::info!("conf_file_path {:?}", conf_file_path);
         log::info!("conf_file {:?}", conf_file);
-        log::info!("api_conf {:?}", api_conf);
-        server::run_server(conf_file_path, conf_file, api_conf)
+        server::run_server(conf_file_path, conf_file)
     }
     match cmd {
         RunServer => run_server_1,
@@ -176,9 +169,9 @@ fn lookup_command(cmd: ClCommand) -> impl FnOnce(Option<PathBuf>, ConfigFile, Ap
 fn main() -> Result<(), error::MainError> {
     env_logger::init();
     log::info!("disqus-proxy started");
-    let (cmd, conf_file_path, conf_file, api_conf) = handle_config()?;
+    let (cmd, conf_file_path, conf_file) = handle_config()?;
     let cmd = lookup_command(cmd);
-    let ret = cmd(conf_file_path, conf_file, api_conf);
+    let ret = cmd(conf_file_path, conf_file);
     log::info!("disqus-proxy finished");
     ret
 }

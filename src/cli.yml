@@ -6,7 +6,7 @@ args:
     - config:
         short: c
         long: config
-        value_name: FILE
+        value_name: file
         help: Sets a custom config file
         required: false
     - no_default_config:
@@ -17,42 +17,84 @@ args:
     - addr_port:
         short: a
         long: addr_port
-        value_name: addrress:port
+        value_name: address:port
         help: Set the address and port to listen on
         required: false
-    - path_prefix:
-        long: path_prefix 
-        value_name: prefix prepended to api urls
-        help: prefix prepended to api urls
     - api_key:
         short: k
         long: api_key
-        value_name: api public key
+        value_name: api_public_key
         help: Set the public api key
         required: false
     - api_secret:
         short: s
         long: api_secret
-        value_name: api secret key
+        value_name: api_secret_key
         help: Set the private api key
         required: false
     - redirect_uri:
         short: r
         long: redirect_uri
-        value_name: your redirection uri registered in disqus
+        value_name: uri
+        help: your redirection uri registered in disqus
         required: false
+    - common_api_key:
+        long: common_api_key
+        value_name: key
+        help: replace the default common api key with your specified
+        required: false
+    - path_prefix:
+        long: path_prefix 
+        value_name: prefix
+        help: prefix prepended to api urls
     - use_tls:
         long: use_tls
-        value_name: true/false to use https?
         help: use https protocol
+        required: false
     - tls_cert:
         long: tls_cert
-        value_name: tls cert file path
+        value_name: cert_file
         help: Set the tls cert file
+        required: false
     - tls_key:
         long: tls_key
-        value_name: tls key file path
+        value_name: key_file
         help: Set the tls key file
+    - cookie_secret_key:
+        long: cookie_secret_key
+        value_name: key
+        help: the secret key to use encrypt cookie
+        required: false
+    - pg_user:
+        long: pg_user_name
+        value_name: user_name
+        help: user name to login to postgres
+        required: false
+    - pg_password:
+        long: pg_password
+        value_name: password
+        help: password to login to postgres
+        required: false
+    - pg_dbname:
+        long: pg_dbname
+        value_name: database_name
+        help: name of the database to connect to
+        required: false
+    - pg_host:
+        long: pg_host
+        value_name: host
+        help: the host to connect to
+        required: false
+    - pg_port:
+        long: pg_port
+        value_name: post
+        help: the post to connect to
+        required: false
+    - pg_options:
+        long: pg_options
+        value_name: options
+        help: command line options passed to postgres
+        required: false
     - show:
         long: show
         help: Show config information and exit
