@@ -14,6 +14,7 @@ quick_error! {
         NoRedirectUri {}
         NoCommonApiKey {}
         NoListenAddrPort {}
+        ParseAuthUri(err: actix_web::error::Error) {}
     }
 }
 

@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 use futures::future;
 use std::boxed::Box;
 
-#[derive(Deserialize, Default, Debug, Clone)]
+#[derive(Clone)]
 struct ApiConfig {
     api_key: String,
     api_secret: String,
@@ -31,13 +31,13 @@ impl ApiConfig {
         let api_secret = conf_file.api_secret.clone().ok_or(NoApiSecret)?;
         let redirect_uri = conf_file.redirect_uri.clone().ok_or(NoRedirectUri)?;
         let common_api_key = conf_file.common_api_key.clone().ok_or(NoCommonApiKey)?;
-        let auth_uri = format!("https://disqus.com/api/oauth/2.0/authorize/?client_id={}&scope=read,write&response_type=code&redirect_uri={}", api_key, redirect_uri).to_string();
+        let auth_uri = format!("https://disqus.com/api/oauth/2.0/authorize/?client_id={}&scope=read,write&response_type=code&redirect_uri={}", api_key, redirect_uri);
         Ok(ApiConfig {
             api_key,
             api_secret,
             redirect_uri,
             common_api_key,
-            auth_uri,
+            auth_uri
         })
     }
 }
@@ -86,21 +86,47 @@ struct LoginInfoForm <'a>{
     csrfmiddlewaretoken: &'a str,
 }
 
-// 'a is the life time of the request
-fn login_new_1<'a>(login_info: LoginInfo, token: String, session_id: String, state: AppState) -> impl future::Future<Item=HttpResponse, Error=actix_web::error::Error> + 'a {
+#[derive(Serialize)]
+struct GrantInfo<'a> {
+    grant_type: &'a str,
+    client_id: &'a str,
+    client_secret: &'a str,
+    redirect_uri: &'a str,
+    code: &'a [u8],
+}
+
+fn login_new_grant(code: &[u8], state: AppState) -> impl future::Future<Item=HttpResponse, Error=actix_web::error::Error> {
     use future::{Future, IntoFuture};
-    let uri = "https://disqus.com/api/oauth/2.0/grant/";
+    let grant_info = GrantInfo {
+        grant_type: "authorization_code",
+        client_id: &state.api_conf.api_key,
+        client_secret: &state.api_conf.api_secret,
+        redirect_uri: &state.api_conf.redirect_uri,
+        code: code
+    };
+    let grant_uri = "POST https://disqus.com/api/oauth/2.0/access_token/";
+    client::post(&grant_uri).form(grant_info).into_future().from_err().and_then(|res| {
+        res.send().map_err(|e| { log::info!("login_new_grant_send_post_error {:?}", e); e}).from_err().and_then(move |response| {
+            log::info!("login_new_grant_disqus_response {:?}", response);
+            future::ok(HttpResponse::Ok().finish())
+        })
+    })
+}
+
+// 'a is the life time of the request
+fn login_new_auth<'a>(login_info: LoginInfo, token: String, session_id: String, state: AppState) -> impl future::Future<Item=HttpResponse, Error=actix_web::error::Error> + 'a {
+    use future::{Future, IntoFuture};
     let form = LoginInfoForm {
         username: &login_info.username,
         password: &login_info.password,
         csrfmiddlewaretoken: &token,
     };
     let cookie = format!("csrftoken={}; sessionid={}", token, session_id);
-    let auth_uri = state.api_conf.auth_uri.clone();
-    client::post(&uri).no_default_headers().header("User-Agent", "curl/7.64.0").header("Cookie", cookie)
+    let auth_uri = "https//disqus,com/api/oauth/2.0/grant/";
+    client::post(&auth_uri).header("Cookie", cookie)
     .header(actix_web::http::header::REFERER, auth_uri)
-    .set_header(actix_web::http::header::HOST, "disqus.com")
-    .form(form).into_future().from_err().and_then(move |res| {
+    .header(actix_web::http::header::HOST, "disqus.com")
+    .form(form).into_future().from_err().and_then(|res| {
         log::info!("login_new1_send_request {:?}", res);
         log::info!("login_new1_send_request body {:?}", res.body());
         res.send().map_err(|e| { log::info!("login_new_1_post_form_error {:?}", e); e }).from_err().and_then(move |response| {
@@ -114,12 +140,12 @@ fn login_new_1<'a>(login_info: LoginInfo, token: String, session_id: String, sta
                     let suffix_len = suffix.len();
                     // FIXME: better representation of uri
                     if redirect_uri.len() > len + suffix_len && &redirect_uri[0..len] == state.api_conf.redirect_uri.as_bytes() && &redirect_uri[len..len+suffix_len] == suffix.as_bytes() {
-                        let access_token = &redirect_uri[len+suffix_len..];
-                        return future::ok(actix_web::HttpResponse::Ok().body(access_token.to_owned()));
+                        let code = &redirect_uri[len+suffix_len..];
+                        return future::Either::A(login_new_grant(code, state));
                     }
                 }
             }
-            return future::err(std::convert::Into::<actix_web::error::Error>::into(actix_web::middleware::csrf::CsrfError::CsrDenied));
+            return future::Either::B(future::err(std::convert::Into::<actix_web::error::Error>::into(actix_web::middleware::csrf::CsrfError::CsrDenied)));
         })
     })
 }
@@ -131,8 +157,9 @@ fn login_new(req: HttpRequest<AppState>) -> FutureResponse<HttpResponse> {
         .map_err(|e| { log::info!("login_new_urlencoded_error {:?}", e); actix_web::error::ErrorInternalServerError(e) })
         .and_then(move |login_info| {
             let state = req.state().clone();
-            client::get(&state.api_conf.auth_uri).finish().into_future().and_then(move |res| {
-                res.send().map_err(|e| { log::info!("login_new_urlencoded_send_error {:?}", e); actix_web::error::ErrorInternalServerError(e) }).and_then(move |response| {
+            client::get(&state.api_conf.auth_uri).finish().into_future().and_then(|res| {
+                res.send().map_err(|e| { log::info!("login_new_urlencoded_send_error {:?}", e); actix_web::error::ErrorInternalServerError(e) })
+                .and_then(move |response| {
                     log::info!("login_new_disqus_server_response {:?}", response);
                     // TODO: make this zero copy?
                     match response.cookies() {
@@ -157,7 +184,7 @@ fn login_new(req: HttpRequest<AppState>) -> FutureResponse<HttpResponse> {
                             }
                             match (token, session_id) {
                                 (Some(token), Some(session_id)) => {
-                                    let res = login_new_1(login_info, token, session_id, state);
+                                    let res = login_new_auth(login_info, token, session_id, state);
                                     return future::Either::B(future::Either::A(res));
                                 },
                                 _ => {
