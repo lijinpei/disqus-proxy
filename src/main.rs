@@ -1,3 +1,5 @@
+#![feature(trait_alias)]
+
 use clap::load_yaml;
 use serde::Deserialize;
 

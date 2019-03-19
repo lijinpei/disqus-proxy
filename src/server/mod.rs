@@ -1,4 +1,5 @@
 mod tls;
+mod storage;
 
 use crate::{ConfigFile, error};
 
@@ -17,7 +18,7 @@ use future::{Future, IntoFuture};
 use actix_web::middleware::identity::RequestIdentity;
 
 #[derive(Clone)]
-struct ApiConfig {
+pub(crate) struct ApiConfig {
     api_key: String,
     api_secret: String,
     redirect_uri: String,
@@ -59,6 +60,19 @@ impl AppState {
     }
 }
 
+pub(crate) type Code = String;
+
+struct UserInfo {
+    username: String,
+    user_id: String,
+    access_token: String,
+    expires_in: String,
+    token_type: String,
+    state: String,
+    scope: String,
+    refresh_token: String
+}
+
 fn get_listen_address(conf: &ConfigFile) -> Result<SocketAddr, error::ClConfError> {
     let addr_port = conf.addr_port.clone().ok_or(error::ClConfError::NoListenAddrPort)?;
     let pos = addr_port.rfind(':').ok_or(error::ClConfError::InvalidAddress)?;
@@ -85,7 +99,7 @@ struct LoginInfoForm <'a>{
 }
 
 #[derive(Serialize)]
-struct GrantInfo<'a> {
+pub(crate) struct GrantInfo<'a> {
     grant_type: &'a str,
     client_id: &'a str,
     client_secret: &'a str,

@@ -16,3 +16,5 @@ env_logger = "0.6"
 log = "0.4"
 tokio-postgres = { git = "https://github.com/sfackler/rust-postgres.git", rev = "4f084e7b647a26dcaa8da5301be93304cffe092f" }
 redis-async = "0.4"
+lru-cache = "0.1"
+futures-locks = "0.3"
