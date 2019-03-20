@@ -11,7 +11,7 @@ pub mod error;
 pub mod server;
 
 #[derive(Deserialize, Default, Debug, Clone)]
-struct ConfigFile {
+pub struct ConfigFile {
     api_key: Option<String>,
     api_secret: Option<String>,
     redirect_uri: Option<String>,

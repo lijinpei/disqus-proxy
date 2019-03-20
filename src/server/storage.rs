@@ -1,9 +1,10 @@
 use futures::future::{self, Future, IntoFuture};
-use crate::server::{Code, GrantInfo};
+use crate::server::{Code, UserInfo};
 use futures_locks::RwLock;
 use std::time::Instant;
 use quick_error::quick_error;
 
+#[derive(Debug)]
 pub struct StorageError {
     inner: Box<dyn std::error::Error>
 }
@@ -26,12 +27,16 @@ impl<T: std::error::Error + 'static> std::convert::From<T> for StorageError {
 // trait StorageFuture<T> = future::Future<T, Error=StorageError>;
 type StorageFuture<T> = Box<dyn Future<Item=T, Error=StorageError>>;
 
-pub(crate) type Identity = usize;
+pub type Identity = usize;
 
 #[derive(Clone)]
-pub struct StorageEntry;
+pub struct StorageEntry {
+    code: Code,
+    user_info: UserInfo,
+    add_time: Instant
+}
 
-pub(crate) trait SessionStorageHandle : Send + Sync {
+pub trait SessionStorageHandle : Send + Sync {
     fn store(&mut self, entry: StorageEntry) -> StorageFuture<Identity>;
     fn get(&mut self, id: Identity) -> StorageFuture<StorageEntry>;
     //fn get_code(&self, id: Identity) -> StorageFuture<Code>;
@@ -42,8 +47,17 @@ pub(crate) trait SessionStorageHandle : Send + Sync {
     fn trim(&mut self, inst: Instant) -> StorageFuture<()>;
 }
 
-pub(crate) struct InprocessStorageHandle {
+#[derive(Clone)]
+pub struct InprocessStorageHandle {
     inner: RwLock<InprocessStorageInner>,
+}
+
+impl InprocessStorageHandle {
+    pub fn new() -> Self {
+        InprocessStorageHandle {
+            inner: RwLock::new(InprocessStorageInner::new())
+        }
+    }
 }
 
 // TODO: write some macro to simplify this
@@ -69,13 +83,13 @@ impl SessionStorageHandle for InprocessStorageHandle {
     fn clear(&mut self) -> StorageFuture<()> {
         Box::new(self.inner.write().map_err(|_| { log::info!("inprocess_storage_clear_error"); InprocessStorageError::FailedToWriteLock } ).and_then(move |mut res| {
             future::ok(res.clear())
-        }).from_err()
+        }).from_err())
     }
 
     fn hint_trim(&mut self) -> StorageFuture<()> {
         Box::new(self.inner.write().map_err(|_| { log::info!("inprocess_storage_hint_trim_error"); InprocessStorageError::FailedToWriteLock }).and_then(move |mut res| {
             future::ok(res.hint_trim())
-        }).from_err()
+        }).from_err())
     }
 
     fn trim(&mut self, inst: Instant) -> StorageFuture<()> {
@@ -98,6 +112,10 @@ type LruCache = lru_cache::LruCache<Identity, StorageEntry>;
 struct InprocessStorageInner(LruCache);
 
 impl InprocessStorageInner {
+    pub fn new() -> Self {
+        InprocessStorageInner(LruCache::new(4096))
+    }
+
     pub fn store(&mut self, entry: StorageEntry) -> Identity {
         let id = self.len();
         self.0.insert(id, entry);
@@ -127,16 +145,8 @@ impl InprocessStorageInner {
     }
 }
 
-/*
-pub(crate)struct RedisStorage {
+pub struct RedisStorageHandle {
 }
 
-impl SessionStorage for RedisStorage {
+pub struct PostgresStorageHandle {
 }
-
-pub(crate) struct PostgresStorage {
-}
-
-impl SessionStorage for PostgresStorage {
-}
-*/

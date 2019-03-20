@@ -11,14 +11,15 @@ use std::net::SocketAddr;
 use serde::{Deserialize, Serialize};
 use futures::future;
 use std::boxed::Box;
+use std::sync::Arc;
+use storage::{SessionStorageHandle, InprocessStorageHandle};
 
 // trait usage
 use actix_web::HttpMessage;
 use future::{Future, IntoFuture};
 use actix_web::middleware::identity::RequestIdentity;
 
-#[derive(Clone)]
-pub(crate) struct ApiConfig {
+pub struct ApiConfig {
     api_key: String,
     api_secret: String,
     redirect_uri: String,
@@ -48,20 +49,22 @@ impl ApiConfig {
 
 #[derive(Clone)]
 struct AppState {
-    api_conf: ApiConfig,
-//    pg_client: pg::Client,
+    api_conf: Arc<ApiConfig>,
+    storage: Arc<SessionStorageHandle>
 }
 
 impl AppState {
-    pub fn from_conf_file(conf_file: &ConfigFile) -> Result<AppState, error::ClConfError> {
+    pub fn from_conf_file(conf_file: &ConfigFile, storage: Arc<SessionStorageHandle>) -> Result<AppState, error::ClConfError> {
         Ok( AppState {
-            api_conf: ApiConfig::from_conf_file(conf_file)?
+                api_conf: Arc::new(ApiConfig::from_conf_file(conf_file)?),
+                storage
         })
-    }
+}
 }
 
 pub(crate) type Code = String;
 
+#[derive(Clone)]
 struct UserInfo {
     username: String,
     user_id: String,
@@ -82,7 +85,7 @@ fn get_listen_address(conf: &ConfigFile) -> Result<SocketAddr, error::ClConfErro
     let port = addr_port[pos + 1..].parse().map_err(|e| { error::ClConfError::ParseListenPort(e) })?;
     use std::net::*;
     let addr = addr_port[..pos].parse::<Ipv4Addr>().map_err(|e| {error::ClConfError::ParseListenAddress(e)})?;
-    Ok(SocketAddr::V4(SocketAddrV4::new(addr, port))
+    Ok(SocketAddr::V4(SocketAddrV4::new(addr, port)))
 }
 
 #[derive(Deserialize)]
@@ -133,7 +136,7 @@ fn login_new_grant(code: &[u8], state: AppState) -> impl future::Future<Item=Htt
 }
 
 // 'a is the life time of the request
-fn login_new_auth<'a>(login_info: LoginInfo, token: String, session_id: String, state: AppState) -> impl future::Future<Item=HttpResponse, Error=actix_web::error::Error> + 'a {
+fn login_new_auth(login_info: LoginInfo, token: String, session_id: String, state: AppState) -> impl future::Future<Item=HttpResponse, Error=actix_web::error::Error> {
     log::info!("inside login new auth");
     use future::{Future, IntoFuture};
     let form = LoginInfoForm {
@@ -146,7 +149,7 @@ fn login_new_auth<'a>(login_info: LoginInfo, token: String, session_id: String, 
     http_client::post(&auth_uri).header("Cookie", cookie)
     .header(actix_web::http::header::REFERER, auth_uri)
     .header(actix_web::http::header::HOST, "disqus.com")
-    .form(form).into_future().map_err(|e| { log::info!("login_new_auth_form_post_error {:?}", e); e }).from_err().and_then(|res| {
+    .form(form).into_future().map_err(|e| { log::info!("login_new_auth_form_post_error {:?}", e); e }).from_err().and_then(move |res| {
         log::info!("login_new1_send_request {:?}", res);
         log::info!("login_new1_send_request body {:?}", res.body());
         res.send().map_err(|e| { log::info!("login_new_1_post_form_error {:?}", e); e }).from_err().and_then(move |response| {
@@ -263,7 +266,8 @@ fn build_app(path_prefix: &Option<String>, app_state: AppState)-> App<AppState> 
 pub(crate) fn run_server(_conf_path: Option<PathBuf>, conf_file: ConfigFile) -> Result<(), error::MainError>{
     let server = 
     {
-        let app_state = AppState::from_conf_file(&conf_file)?;
+        let storage = Arc::new(InprocessStorageHandle::new());
+        let app_state = AppState::from_conf_file(&conf_file, storage)?;
         let path_prefix = conf_file.path_prefix.clone();
         actix_web::server::new(move || {
             build_app(&path_prefix, app_state.clone())
