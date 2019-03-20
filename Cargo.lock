@@ -456,6 +456,7 @@ name = "disqus-proxy"
 version = "0.1.0"
 dependencies = [
  "actix-web 0.7.18 (registry+https://github.com/rust-lang/crates.io-index)",
+ "bytes 0.4.12 (registry+https://github.com/rust-lang/crates.io-index)",
  "clap 2.32.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "env_logger 0.6.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "futures 0.1.25 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -466,6 +467,7 @@ dependencies = [
  "redis-async 0.4.4 (registry+https://github.com/rust-lang/crates.io-index)",
  "rustls 0.14.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde 1.0.89 (registry+https://github.com/rust-lang/crates.io-index)",
+ "serde_json 1.0.39 (registry+https://github.com/rust-lang/crates.io-index)",
  "tokio-postgres 0.4.0-rc.2 (git+https://github.com/sfackler/rust-postgres.git?rev=4f084e7b647a26dcaa8da5301be93304cffe092f)",
  "toml 0.4.10 (registry+https://github.com/rust-lang/crates.io-index)",
 ]

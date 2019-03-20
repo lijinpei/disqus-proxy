@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 use futures::future;
 use std::boxed::Box;
 use std::sync::Arc;
-use storage::{SessionStorageHandle, InprocessStorageHandle};
+use storage::{SessionStorageHandle, InprocessStorageHandle, StorageEntry};
 
 // trait usage
 use actix_web::HttpMessage;
@@ -64,8 +64,8 @@ impl AppState {
 
 pub(crate) type Code = String;
 
-#[derive(Clone)]
-struct UserInfo {
+#[derive(Clone, Deserialize)]
+pub struct UserInfo {
     username: String,
     user_id: String,
     access_token: String,
@@ -110,6 +110,14 @@ pub(crate) struct GrantInfo<'a> {
     code: &'a str,
 }
 
+fn login_new_add_user(bin: bytes::Bytes, mut state: AppState) -> impl future::Future<Item=HttpResponse, Error=actix_web::error::Error> {
+    serde_json::from_slice(&bin).into_future().map_err(|e| { actix_web::error::ErrorInternalServerError(e) } ).and_then(move |user_info| {
+        state.storage.store(StorageEntry{user_info, add_time: std::time::Instant::now()}).map_err(|e| { log::info!("login_new_add_user_store_error {:?}", e); actix_web::error::ErrorInternalServerError("failed to add user to database")}).and_then(|res| {
+            future::ok(HttpResponse::Ok().body(std::format!("{}", res)))
+        })
+    })
+}
+
 fn login_new_grant(code: &[u8], state: AppState) -> impl future::Future<Item=HttpResponse, Error=actix_web::error::Error> {
     log::info!("login_new_grant");
     let grant_info = GrantInfo {
@@ -127,10 +135,10 @@ fn login_new_grant(code: &[u8], state: AppState) -> impl future::Future<Item=Htt
     req.into_future().map_err(|e| {log::info!("login_new_grant_form_post_error {:?}", e); actix_web::error::ErrorInternalServerError(e)}).and_then(|res| {
         res.send().map_err(|e| { log::info!("login_new_grant_send_post_error {:?}", e); actix_web::error::ErrorInternalServerError(e)}).and_then(move |response| {
             log::info!("login_new_grant_disqus_response {:?}", response);
-            response.body().and_then(|res| {
-            log::info!("login_new_grant_disqus_response body{:?}", res);
-            future::ok(HttpResponse::Ok().finish())
-            }).map_err(|e| {actix_web::error::ErrorInternalServerError(e) })
+            response.body().map_err(|e| {log::info!("login_new_grant_body_error {:?}", e); e}).from_err().and_then(|res| {
+                log::info!("login_new_grant_disqus_response body{:?}", res);
+                login_new_add_user(res, state)
+            })
         })
     })
 }

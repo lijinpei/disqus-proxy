@@ -9,6 +9,13 @@ pub struct StorageError {
     inner: Box<dyn std::error::Error>
 }
 
+impl std::fmt::Display for StorageError {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "StorageError({})", &self.inner)
+    }
+
+}
+
 impl StorageError {
     pub fn new<E: std::error::Error + 'static>(e: E) -> Self {
         Self {
@@ -31,20 +38,19 @@ pub type Identity = usize;
 
 #[derive(Clone)]
 pub struct StorageEntry {
-    code: Code,
-    user_info: UserInfo,
-    add_time: Instant
+pub    user_info: UserInfo,
+pub    add_time: Instant
 }
 
 pub trait SessionStorageHandle : Send + Sync {
-    fn store(&mut self, entry: StorageEntry) -> StorageFuture<Identity>;
-    fn get(&mut self, id: Identity) -> StorageFuture<StorageEntry>;
+    fn store(&self, entry: StorageEntry) -> StorageFuture<Identity>;
+    fn get(&self, id: Identity) -> StorageFuture<StorageEntry>;
     //fn get_code(&self, id: Identity) -> StorageFuture<Code>;
     //fn get_grant_info(&self, id: Identity) -> StorageFuture<GrantInfo>;
     fn len(& self) -> StorageFuture<usize>;
-    fn clear(&mut self) -> StorageFuture<()>;
-    fn hint_trim(&mut self) -> StorageFuture<()>;
-    fn trim(&mut self, inst: Instant) -> StorageFuture<()>;
+    fn clear(&self) -> StorageFuture<()>;
+    fn hint_trim(&self) -> StorageFuture<()>;
+    fn trim(&self, inst: Instant) -> StorageFuture<()>;
 }
 
 #[derive(Clone)]
@@ -62,13 +68,13 @@ impl InprocessStorageHandle {
 
 // TODO: write some macro to simplify this
 impl SessionStorageHandle for InprocessStorageHandle {
-    fn store(&mut self, entry: StorageEntry) -> StorageFuture<Identity> {
+    fn store(&self, entry: StorageEntry) -> StorageFuture<Identity> {
         Box::new(self.inner.write().map_err(|_| { log::info!("inprocess_store_error"); InprocessStorageError::FailedToWriteLock } ).and_then(move |mut res| {
             future::ok(res.store(entry))
         }).from_err())
     }
 
-    fn get(&mut self, id: Identity) -> StorageFuture<StorageEntry> {
+    fn get(&self, id: Identity) -> StorageFuture<StorageEntry> {
         Box::new(self.inner.write().map_err(|_| {log::info!("inprocess_get_error"); InprocessStorageError::FailedToReadLock }).and_then(move |mut res| {
             res.get(id).ok_or(InprocessStorageError::FailToFindKey).into_future()
         }).from_err())
@@ -80,19 +86,19 @@ impl SessionStorageHandle for InprocessStorageHandle {
         }).from_err())
     }
 
-    fn clear(&mut self) -> StorageFuture<()> {
+    fn clear(&self) -> StorageFuture<()> {
         Box::new(self.inner.write().map_err(|_| { log::info!("inprocess_storage_clear_error"); InprocessStorageError::FailedToWriteLock } ).and_then(move |mut res| {
             future::ok(res.clear())
         }).from_err())
     }
 
-    fn hint_trim(&mut self) -> StorageFuture<()> {
+    fn hint_trim(&self) -> StorageFuture<()> {
         Box::new(self.inner.write().map_err(|_| { log::info!("inprocess_storage_hint_trim_error"); InprocessStorageError::FailedToWriteLock }).and_then(move |mut res| {
             future::ok(res.hint_trim())
         }).from_err())
     }
 
-    fn trim(&mut self, inst: Instant) -> StorageFuture<()> {
+    fn trim(&self, inst: Instant) -> StorageFuture<()> {
         Box::new(self.inner.write().map_err(|_| { log::info!("inprocess_storage_trim_error"); InprocessStorageError::FailedToWriteLock}).and_then(move |mut res| {
             future::ok(res.trim(inst))
         }).from_err())
