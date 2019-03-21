@@ -14,6 +14,10 @@ quick_error! {
         NoRedirectUri {}
         NoCommonApiKey {}
         NoListenAddrPort {}
+        NoCookieSecretKey {}
+        FailedToContructSealingKey {}
+        FailedToContructOpeningKey {}
+        InvalidDigestKeyBytesLen {}
         ParseAuthUri(err: actix_web::error::Error) {}
     }
 }

@@ -13,6 +13,7 @@ use futures::future;
 use std::boxed::Box;
 use std::sync::Arc;
 use storage::{SessionStorageHandle, InprocessStorageHandle, StorageEntry};
+use ring::aead;
 
 // trait usage
 use actix_web::HttpMessage;
@@ -26,6 +27,9 @@ pub struct ApiConfig {
     common_api_key: String,
 
     auth_uri: String,
+
+    aead_sealing_key: aead::SealingKey,
+    aead_opening_key: aead::OpeningKey,
 }
 
 impl ApiConfig {
@@ -37,13 +41,72 @@ impl ApiConfig {
         let redirect_uri = conf_file.redirect_uri.clone().ok_or(NoRedirectUri)?;
         let common_api_key = conf_file.common_api_key.clone().ok_or(NoCommonApiKey)?;
         let auth_uri = format!("https://disqus.com/api/oauth/2.0/authorize/?client_id={}&scope=read,write&response_type=code&redirect_uri={}", api_key, redirect_uri);
+        let cookie_key = conf_file.cookie_secret_key.clone().ok_or(NoCookieSecretKey)?;
+        let key_bytes: Vec<u8> = ring::digest::digest(&ring::digest::SHA256, cookie_key.as_bytes()).as_ref().to_owned();
+        if key_bytes.len() != 32 {
+            return Err(InvalidDigestKeyBytesLen);
+        }
+        let aead_sealing_key = aead::SealingKey::new(&aead::AES_256_GCM, &key_bytes).map_err(|_| { FailedToContructSealingKey})?;
+        let aead_opening_key = aead::OpeningKey::new(&aead::AES_256_GCM, &key_bytes).map_err(|_| { FailedToContructOpeningKey } )?;
         Ok(ApiConfig {
             api_key,
             api_secret,
             redirect_uri,
             common_api_key,
-            auth_uri
+            auth_uri,
+
+            aead_sealing_key,
+            aead_opening_key,
         })
+    }
+
+    pub fn seal(&self, id: usize) -> Option<([u8;12], Vec<u8>)> {
+        use rand::Rng;
+        let mut nonce: [u8;12] = unsafe {std::mem::uninitialized() };
+        rand::thread_rng().fill(&mut nonce);
+        //let aead_nonce = aead::Nonce::assume_unique_for_key(&nonce);
+        let len = std::mem::size_of::<usize>() + aead::MAX_TAG_LEN;
+        let mut ret = Vec::with_capacity(len);
+        unsafe { ret.set_len(std::mem::size_of::<usize>()) };
+        ret.copy_from_slice(&id.to_ne_bytes());
+        unsafe { ret.set_len(len) };
+        match aead::seal_in_place(
+            &self.aead_sealing_key,
+            &nonce,
+            &[],
+            &mut ret,
+            aead::MAX_TAG_LEN
+        ) {
+            Ok(_) => {
+                return Some((nonce, ret));
+            },
+            _ => {
+                return None;
+            }
+        }
+    }
+
+    pub fn open(&self, nonce: &[u8], mut text: Vec<u8>) -> Option<usize> {
+        match aead::open_in_place(
+            &self.aead_opening_key,
+            nonce,
+            &[],
+            0usize,
+            &mut text
+        ) {
+            Ok(nt) => {
+                const SZ:usize = std::mem::size_of::<usize>();
+                if nt.len() < SZ {
+                    return None;
+                }
+                let mut arr:[u8;SZ] = unsafe {std::mem::uninitialized() };
+                arr.copy_from_slice(&nt[0..SZ]);
+                return Some(usize::from_ne_bytes(arr));
+            },
+            _ => {
+                return None;
+            }
+        }
     }
 }
 
