@@ -103,6 +103,9 @@ fn handle_config() -> Result<(ClCommand, Option<PathBuf>, ConfigFile), error::Cl
         }
     }
 
+    if let Some(v) = matches.value_of("cookie_secret_key") {
+        config.cookie_secret_key = Some(v.to_string());
+    }
     if let Some(v) = matches.value_of("path_prefix") {
         config.path_prefix = Some(v.to_string());
     }

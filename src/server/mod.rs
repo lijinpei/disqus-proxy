@@ -175,7 +175,12 @@ pub(crate) struct GrantInfo<'a> {
 
 fn login_new_add_user(bin: bytes::Bytes, mut state: AppState) -> impl future::Future<Item=HttpResponse, Error=actix_web::error::Error> {
     serde_json::from_slice(&bin).into_future().map_err(|e| { log::info!("login_new_add_user_serde_json_error {:?}", e); actix_web::error::ErrorInternalServerError(e) } ).and_then(move |user_info| {
-        state.storage.store(StorageEntry{user_info, add_time: std::time::Instant::now()}).map_err(|e| { log::info!("login_new_add_user_store_error {:?}", e); actix_web::error::ErrorInternalServerError("failed to add user to database")}).and_then(|res| {
+        state.storage.store(StorageEntry{user_info, add_time: std::time::Instant::now()}).map_err(|e| { log::info!("login_new_add_user_store_error {:?}", e); actix_web::error::ErrorInternalServerError("failed to add user to database")}).and_then(move |res| {
+            let seal = state.api_conf.seal(res);
+            log::info!("seal {} result {:?}", res, seal);
+            let (nonce, text) = seal.unwrap();
+            let res1 = state.api_conf.open(&nonce, text);
+            log::info!("open result {:?}", res1);
             let resp = std::format!("{}", res).to_string();
             log::info!("login_new_add_user_response {}", resp);
             future::ok(HttpResponse::Ok().body(resp))
