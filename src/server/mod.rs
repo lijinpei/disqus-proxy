@@ -130,11 +130,11 @@ pub(crate) type Code = String;
 #[derive(Clone, Deserialize)]
 pub struct UserInfo {
     username: String,
-    user_id: String,
+    user_id: u32,
     access_token: String,
-    expires_in: String,
+    expires_in: u32,
     token_type: String,
-    state: String,
+    state: serde_json::value::Value,
     scope: String,
     refresh_token: String
 }
@@ -174,9 +174,11 @@ pub(crate) struct GrantInfo<'a> {
 }
 
 fn login_new_add_user(bin: bytes::Bytes, mut state: AppState) -> impl future::Future<Item=HttpResponse, Error=actix_web::error::Error> {
-    serde_json::from_slice(&bin).into_future().map_err(|e| { actix_web::error::ErrorInternalServerError(e) } ).and_then(move |user_info| {
+    serde_json::from_slice(&bin).into_future().map_err(|e| { log::info!("login_new_add_user_serde_json_error {:?}", e); actix_web::error::ErrorInternalServerError(e) } ).and_then(move |user_info| {
         state.storage.store(StorageEntry{user_info, add_time: std::time::Instant::now()}).map_err(|e| { log::info!("login_new_add_user_store_error {:?}", e); actix_web::error::ErrorInternalServerError("failed to add user to database")}).and_then(|res| {
-            future::ok(HttpResponse::Ok().body(std::format!("{}", res)))
+            let resp = std::format!("{}", res).to_string();
+            log::info!("login_new_add_user_response {}", resp);
+            future::ok(HttpResponse::Ok().body(resp))
         })
     })
 }
@@ -199,7 +201,7 @@ fn login_new_grant(code: &[u8], state: AppState) -> impl future::Future<Item=Htt
         res.send().map_err(|e| { log::info!("login_new_grant_send_post_error {:?}", e); actix_web::error::ErrorInternalServerError(e)}).and_then(move |response| {
             log::info!("login_new_grant_disqus_response {:?}", response);
             response.body().map_err(|e| {log::info!("login_new_grant_body_error {:?}", e); e}).from_err().and_then(|res| {
-                log::info!("login_new_grant_disqus_response body{:?}", res);
+                log::info!("login_new_grant_disqus_response_body{:?}", res);
                 login_new_add_user(res, state)
             })
         })
