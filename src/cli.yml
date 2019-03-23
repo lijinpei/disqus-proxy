@@ -4,36 +4,34 @@ author: Li Jinpei <leekingp1994@163.com>
 about: Proxy disqus through your vps.
 args:
     - config:
-        short: c
         long: config
         value_name: file
         help: Sets a custom config file
         required: false
     - no_default_config:
-        short: n
         long: no_default_config
         help: don't load default config file disqus_proxy.toml
         required: false
     - addr_port:
-        short: a
         long: addr_port
         value_name: address:port
         help: Set the address and port to listen on
         required: false
+    - short_name:
+        long: short_name
+        value_name: name
+        help: short-name of your website as registered in disqus
     - api_key:
-        short: k
         long: api_key
         value_name: api_public_key
         help: Set the public api key
         required: false
     - api_secret:
-        short: s
         long: api_secret
         value_name: api_secret_key
         help: Set the private api key
         required: false
     - redirect_uri:
-        short: r
         long: redirect_uri
         value_name: uri
         help: your redirection uri registered in disqus

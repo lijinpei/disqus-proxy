@@ -18,6 +18,7 @@ pub struct ConfigFile {
     common_api_key: Option<String>,
 
     addr_port: Option<String>,
+    short_name: Option<String>,
     use_tls: Option<bool>,
     tls_cert: Option<PathBuf>,
     tls_key: Option<PathBuf>,
@@ -88,6 +89,10 @@ fn handle_config() -> Result<(ClCommand, Option<PathBuf>, ConfigFile), error::Cl
 
     if let Some(v) = matches.value_of("addr_port") {
         config.addr_port = Some(v.to_string());
+    }
+
+    if let Some(v) = matches.value_of("short_name") {
+        config.short_name = Some(v.to_string());
     }
 
     if matches.is_present("use_tls") {

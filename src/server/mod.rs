@@ -1,5 +1,6 @@
 mod tls;
 mod storage;
+mod proxy;
 
 use crate::{ConfigFile, error};
 
